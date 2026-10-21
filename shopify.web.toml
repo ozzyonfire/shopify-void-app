@@ -1,0 +1,7 @@
+name = "app"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks/app/uninstalled"
+
+[commands]
+predev = "pnpm exec void db migrate"
+dev = "node scripts/dev.mjs"
