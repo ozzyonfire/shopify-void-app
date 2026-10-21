@@ -1,8 +1,7 @@
 import "@shopify/shopify-api/adapters/cf-worker";
 import { ApiVersion, LogSeverity, shopifyApi, type Shopify } from "@shopify/shopify-api";
 import { env } from "void/env";
-
-export const API_VERSION = ApiVersion.October26;
+import { API_VERSION } from "./api-version";
 
 let instance: Shopify | undefined;
 let instanceHost: string | undefined;
@@ -24,7 +23,7 @@ export function getShopify(requestUrl?: string): Shopify {
     scopes: env.SCOPES ? env.SCOPES.split(",") : undefined,
     hostName: appUrl.host,
     hostScheme: appUrl.protocol === "http:" ? "http" : "https",
-    apiVersion: API_VERSION,
+    apiVersion: API_VERSION as ApiVersion,
     isEmbeddedApp: true,
     ...(env.SHOP_CUSTOM_DOMAIN ? { customShopDomains: [env.SHOP_CUSTOM_DOMAIN] } : {}),
     logger: { level: import.meta.env.DEV ? LogSeverity.Info : LogSeverity.Error },

@@ -4,6 +4,9 @@
 // the worker values that come from .env files (shell vars are ignored so your
 // shell never leaks into the worker). This copies the CLI's values into
 // .env.local, removes them from the shell env, then starts Vite.
+//
+// It also runs GraphQL codegen in watch mode, so `#graphql` operations get
+// typed results as you edit them.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -37,13 +40,29 @@ if (lines.length > 0) {
 const childEnv = { ...process.env };
 for (const key of Object.keys(values)) delete childEnv[key];
 
-const vitePkg = createRequire(import.meta.url).resolve("vite/package.json");
-const vite = join(dirname(vitePkg), "bin/vite.js");
-const child = spawn(process.execPath, [vite, "dev"], { stdio: "inherit", env: childEnv });
-child.on("exit", (code, signal) => {
+const require = createRequire(import.meta.url);
+const bin = (pkg, path) => join(dirname(require.resolve(`${pkg}/package.json`)), path);
+
+const vite = spawn(process.execPath, [bin("vite", "bin/vite.js"), "dev"], {
+  stdio: "inherit",
+  env: childEnv,
+});
+const codegen = spawn(process.execPath, [bin("@graphql-codegen/cli", "esm/bin.js"), "--watch"], {
+  stdio: "inherit",
+  env: childEnv,
+});
+codegen.on("exit", (code) => {
+  if (code) console.warn(`GraphQL codegen exited with code ${code}. Run \`pnpm graphql-codegen\` to retry.`);
+});
+
+vite.on("exit", (code, signal) => {
+  codegen.kill();
   if (signal) process.kill(process.pid, signal);
   else process.exit(code ?? 0);
 });
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => child.kill(signal));
+  process.on(signal, () => {
+    codegen.kill(signal);
+    vite.kill(signal);
+  });
 }

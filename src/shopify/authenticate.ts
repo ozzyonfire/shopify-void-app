@@ -1,4 +1,5 @@
 import { HttpResponseError, RequestedTokenType, type Session } from "@shopify/shopify-api";
+import { AdminApiError, type ResultOf, type VariablesArg } from "./graphql";
 import { getShopify } from "./shopify";
 import { deleteSession, loadSession, storeSession } from "./session-storage";
 
@@ -8,8 +9,11 @@ const EXPIRY_BUFFER_MS = 60_000;
 export interface AdminContext {
   shop: string;
   session: Session;
-  /** Runs an Admin GraphQL operation as the shop's offline session. */
-  graphql: <T = unknown>(query: string, variables?: Record<string, unknown>) => Promise<T>;
+  /**
+   * Runs an Admin GraphQL operation as the shop's offline session.
+   * Typed from the `#graphql` query string by GraphQL codegen.
+   */
+  graphql: <Q extends string>(query: Q, ...variables: VariablesArg<Q>) => Promise<ResultOf<Q>>;
 }
 
 /** Thrown when a session token is missing, malformed, or expired. */
@@ -82,12 +86,14 @@ export async function getOfflineSession(shop: string): Promise<Session | undefin
   return refreshed;
 }
 
-export function createGraphql(session: Session, requestUrl?: string) {
-  return async <T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> => {
+export function createGraphql(session: Session, requestUrl?: string): AdminContext["graphql"] {
+  return async (query, ...[variables]) => {
     const client = new (getShopify(requestUrl).clients.Graphql)({ session });
     let response;
     try {
-      response = await client.request<T>(query, { variables });
+      response = await client.request<ResultOf<typeof query>>(query, {
+        variables: variables as Record<string, unknown> | undefined,
+      });
     } catch (error) {
       // The stored token was revoked. Drop it so the next request exchanges a new one.
       if (error instanceof HttpResponseError && error.response.code === 401) {
@@ -96,8 +102,8 @@ export function createGraphql(session: Session, requestUrl?: string) {
       throw error;
     }
     if (response.errors) {
-      throw new Error(response.errors.message ?? "Shopify GraphQL request failed");
+      throw new AdminApiError(response.errors.message ?? "Shopify GraphQL request failed");
     }
-    return response.data as T;
+    return response.data as ResultOf<typeof query>;
   };
 }

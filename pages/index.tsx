@@ -1,13 +1,33 @@
 import { useEffect, useState } from "react";
 import { Link, useForm } from "@void/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
+import { useQuery } from "@tanstack/react-query";
+import { adminGraphql } from "../src/shopify/admin-client";
 import type { Props } from "./index.server";
+
+// Tagged with `#graphql` so codegen generates its result type.
+const SHOP_INFO_QUERY = `#graphql
+  query ShopInfo {
+    shop {
+      currencyCode
+      plan {
+        publicDisplayName
+      }
+    }
+  }
+`;
 
 export default function Home({ shop, products }: Props) {
   const shopify = useAppBridge();
   const form = useForm("/?createProduct", { title: "" });
   const [apiResult, setApiResult] = useState<string>();
-  const [directResult, setDirectResult] = useState<string>();
+
+  // Direct API access: App Bridge sends this straight to the Admin API.
+  // `shopInfo.data` is fully typed, and the result is cached across pages.
+  const shopInfo = useQuery({
+    queryKey: ["shopInfo"],
+    queryFn: () => adminGraphql(SHOP_INFO_QUERY),
+  });
 
   useEffect(() => {
     if (form.recentlySuccessful) {
@@ -26,16 +46,6 @@ export default function Home({ shop, products }: Props) {
     const response = await fetch("/api/hello");
     const data = (await response.json()) as { shop: string; productCount: number };
     setApiResult(`${data.shop} has ${data.productCount} products.`);
-  }
-
-  // Direct API access: App Bridge sends this straight to the Admin API.
-  async function callDirectApi() {
-    const response = await fetch("shopify:admin/api/2026-10/graphql.json", {
-      method: "POST",
-      body: JSON.stringify({ query: `{ shop { currencyCode } }` }),
-    });
-    const { data } = (await response.json()) as { data: { shop: { currencyCode: string } } };
-    setDirectResult(`Store currency: ${data.shop.currencyCode}`);
   }
 
   return (
@@ -107,13 +117,25 @@ export default function Home({ shop, products }: Props) {
 
       <s-section heading="Direct API access">
         <s-stack gap="base">
-          <s-paragraph>Query the Admin API from the browser through App Bridge.</s-paragraph>
-          <s-button onClick={callDirectApi}>Run GraphQL query</s-button>
-          {directResult && (
-            <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-              <s-text>{directResult}</s-text>
-            </s-box>
-          )}
+          <s-paragraph>
+            Query the Admin API from the browser with TanStack Query. Leave this page and come
+            back: the cached result shows instantly.
+          </s-paragraph>
+          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+            {shopInfo.data ? (
+              <s-text>
+                Currency: {shopInfo.data.shop.currencyCode} · Plan:{" "}
+                {shopInfo.data.shop.plan.publicDisplayName}
+              </s-text>
+            ) : shopInfo.error ? (
+              <s-text tone="critical">{shopInfo.error.message}</s-text>
+            ) : (
+              <s-spinner accessibilityLabel="Loading shop info" size="base"></s-spinner>
+            )}
+          </s-box>
+          <s-button onClick={() => shopInfo.refetch()} loading={shopInfo.isFetching}>
+            Refetch
+          </s-button>
         </s-stack>
       </s-section>
 

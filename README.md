@@ -12,11 +12,12 @@ It's the Void counterpart to Shopify's official [React Router template](https://
 - **Token exchange auth**: no OAuth redirects. App Bridge session tokens are exchanged for expiring offline access tokens, and those tokens are refreshed automatically.
 - **Cloudflare D1 + Drizzle**: sessions are stored in D1. There's no database to run locally.
 - **App Bridge + Polaris web components**: loaded from Shopify's CDN and fully typed (`s-page`, `s-section`, `s-button`, …).
-- **Direct API access**: query the Admin API from the browser with `fetch("shopify:admin/api/...")`.
+- **Typed Admin GraphQL, server and client**: write a `#graphql` query and its result and variables are typed automatically (via [`@shopify/api-codegen-preset`](https://www.npmjs.com/package/@shopify/api-codegen-preset)), no Apollo needed.
+- **Direct API access + TanStack Query**: query the Admin API from the browser through App Bridge, with [TanStack Query](https://tanstack.com/query) for caching.
 - **Webhooks**: HMAC-verified handlers for `app/uninstalled`, `app/scopes_update`, and the mandatory compliance topics.
 - **One-command deploys** to Cloudflare with `void deploy`, plus an optional GitHub Actions workflow.
 
-The home page demos each piece: a server loader, a form action, an API route, a direct Admin API call, App Bridge intents, and client-side navigation.
+The home page demos each piece: a server loader, a form action, an API route, a cached direct Admin API query, App Bridge intents, and client-side navigation.
 
 ## Requirements
 
@@ -43,7 +44,11 @@ pnpm config:link   # create or link your app in the Partner Dashboard
 pnpm dev
 ```
 
-`pnpm dev` runs `shopify app dev`, which starts a tunnel, applies pending D1 migrations, and runs `scripts/dev.mjs`. That script copies your app credentials from the CLI into `.env.local` (gitignored) and starts Vite. This step is needed because Void reads worker env values from `.env` files, not from the shell.
+`pnpm dev` runs `shopify app dev`, which starts a tunnel, applies pending D1 migrations, and runs `scripts/dev.mjs`. That script:
+
+- copies your app credentials from the CLI into `.env.local` (gitignored). This is needed because Void reads worker env values from `.env` files, not from the shell.
+- runs GraphQL codegen in watch mode, so query types stay current as you edit.
+- starts Vite.
 
 Press `p` in the CLI to open the app in your dev store.
 
@@ -61,21 +66,52 @@ When there's no valid token:
 - **Page loads** redirect to `/auth/session-token`, which lets App Bridge fetch a fresh token and reload the page.
 - **fetch requests** get a `401` with `X-Shopify-Retry-Invalid-Session-Request`, so App Bridge retries them once with a new token.
 
-### Using the Admin API
+### Using the Admin API on the server
 
 In any loader, action, or route:
 
 ```ts
 export const loader = defineHandler(async (c) => {
   const { shop, session, graphql } = c.get("shopify");
-  const data = await graphql<{ shop: { name: string } }>(`#graphql
-    query { shop { name } }
+  const data = await graphql(`#graphql
+    query ShopName {
+      shop {
+        name
+      }
+    }
   `);
-  return { name: data.shop.name };
+  return { name: data.shop.name }; // typed by codegen
 });
 ```
 
 Outside a merchant request (webhooks, crons, queues), use `getOfflineSession(shop)` from `src/shopify/authenticate.ts`. It refreshes the access token when it has expired.
+
+### Using the Admin API from the browser
+
+`adminGraphql()` from `src/shopify/admin-client.ts` sends the query straight to the Admin API through App Bridge (direct API access, enabled in `shopify.app.toml`). Pair it with TanStack Query for caching:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { adminGraphql } from "../src/shopify/admin-client";
+
+const SHOP_INFO_QUERY = `#graphql
+  query ShopInfo {
+    shop {
+      currencyCode
+    }
+  }
+`;
+
+const { data } = useQuery({
+  queryKey: ["shopInfo"],
+  queryFn: () => adminGraphql(SHOP_INFO_QUERY),
+});
+data?.shop.currencyCode; // typed by codegen
+```
+
+The `QueryClient` lives in `pages/layout.tsx`, which stays mounted across client navigations, so cached results survive page changes. Queries are considered fresh for 30 seconds, then refetched in the background. After a mutation, call `queryClient.invalidateQueries({ queryKey: [...] })` to refetch the affected queries.
+
+Use loaders for data the page needs on first render, and `useQuery` for data you load or refresh on the client.
 
 ### UI
 
@@ -88,18 +124,19 @@ The app nav is `<s-app-nav>` in `pages/layout.tsx`. Nav clicks are routed throug
 ```
 pages/                  UI (React). `*.server.ts` files hold loaders and actions
   layout.tsx            App nav (`s-app-nav`) + `shopify:navigate` → Void router
-  index.tsx             Demos: loader, action, API route, direct API, intents, navigation
+  index.tsx             Demos: loader, action, API route, direct API (TanStack Query), intents, navigation
   additional.tsx
 routes/
   api/hello.ts          Authenticated API route example
   auth/session-token.ts Session token bounce page
   webhooks/             Webhook handlers
 middleware/             Embedded-app headers + authentication
-src/shopify/            Shopify API setup, auth, session storage, webhooks
+src/shopify/            Shopify API setup, auth, session storage, webhooks, typed GraphQL helpers
+src/types/admin/        Generated Admin API types (gitignored)
 db/schema.ts            Drizzle schema (sessions table)
 db/migrations/          SQL migrations
 env.ts                  Typed env vars
-scripts/dev.mjs         Dev command used by the Shopify CLI
+scripts/dev.mjs         Dev command used by the Shopify CLI (Vite + codegen watch)
 shopify.app.toml        App config: scopes, webhooks, direct API access
 ```
 
@@ -116,7 +153,13 @@ pnpm db:migrate    # apply it locally
 
 ## GraphQL types
 
-`.graphqlrc.ts` is set up for [`@shopify/api-codegen-preset`](https://www.npmjs.com/package/@shopify/api-codegen-preset). Operations tagged with `#graphql` in `pages/`, `routes/`, `src/`, and `middleware/` are picked up. Install `@graphql-codegen/cli` and run `pnpm graphql-codegen` to generate types into `src/types/`.
+Any string starting with `#graphql` in `pages/`, `routes/`, `src/`, or `middleware/` is picked up by codegen (configured in `.graphqlrc.ts`). Codegen validates it against the Admin API schema, then registers its result and variable types by the query text. Both `graphql()` on the server and `adminGraphql()` in the browser look up those types, so there are no type annotations to write.
+
+- Give each operation a name (`query ShopInfo { ... }`). Codegen needs it.
+- Keep the query a plain string literal (no `${}` interpolation), either inline or in a `const`.
+- Queries codegen hasn't seen yet resolve to `unknown`.
+
+`pnpm dev` keeps the types current. Otherwise run `pnpm graphql-codegen` (`pnpm typecheck` runs it too). The output in `src/types/admin/` is gitignored, so run it once after cloning to get editor types.
 
 ## Deployment
 

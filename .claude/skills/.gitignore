@@ -1,3 +1,4 @@
 # Symlinks created locally by `void` / pnpm installs. Not portable.
 *
 !.gitignore
+pnpm-*

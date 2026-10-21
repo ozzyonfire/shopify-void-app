@@ -27,3 +27,6 @@ dist
 .void
 .wrangler
 *.tsbuildinfo
+
+# Admin API types from `pnpm graphql-codegen` (also run by `pnpm dev`)
+/src/types/admin/

@@ -4,16 +4,12 @@ import * as v from "valibot";
 
 export type Props = InferProps<typeof loader>;
 
-interface HomeQuery {
-  shop: { name: string; myshopifyDomain: string };
-  products: { nodes: Array<{ id: string; title: string; status: string }> };
-}
-
 /** Runs on the server for every GET. The return value becomes page props. */
 export const loader = defineHandler(async (c) => {
   const { graphql } = c.get("shopify");
 
-  const data = await graphql<HomeQuery>(`#graphql
+  // `data` is typed from the query by GraphQL codegen.
+  const data = await graphql(`#graphql
     query Home {
       shop {
         name
@@ -34,13 +30,6 @@ export const loader = defineHandler(async (c) => {
 
 export const head = defineHead<Props>(() => ({ title: "Home" }));
 
-interface ProductCreateMutation {
-  productCreate: {
-    product: { id: string } | null;
-    userErrors: Array<{ field: string[] | null; message: string }>;
-  };
-}
-
 export const actions = {
   /** `useForm("/?createProduct")`. Returning nothing re-runs the loader. */
   createProduct: defineHandler.withValidator({
@@ -50,7 +39,7 @@ export const actions = {
   })(async (c, { body }) => {
     const { graphql } = c.get("shopify");
 
-    const data = await graphql<ProductCreateMutation>(
+    const data = await graphql(
       `#graphql
         mutation CreateProduct($product: ProductCreateInput!) {
           productCreate(product: $product) {
@@ -67,7 +56,7 @@ export const actions = {
       { product: { title: body.title } },
     );
 
-    const [error] = data.productCreate.userErrors;
+    const [error] = data.productCreate?.userErrors ?? [];
     if (error) throw new ValidationError({ title: error.message });
   }),
 };

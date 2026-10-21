@@ -8,7 +8,7 @@ import { defineHandler } from "void";
 export const GET = defineHandler(async (c) => {
   const { shop, graphql } = c.get("shopify");
 
-  const data = await graphql<{ productsCount: { count: number } }>(`#graphql
+  const data = await graphql(`#graphql
     query ProductsCount {
       productsCount {
         count
@@ -16,5 +16,5 @@ export const GET = defineHandler(async (c) => {
     }
   `);
 
-  return { shop, productCount: data.productsCount.count };
+  return { shop, productCount: data.productsCount?.count ?? 0 };
 });

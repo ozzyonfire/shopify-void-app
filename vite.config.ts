@@ -16,7 +16,24 @@ const hmr: HmrOptions =
         clientPort: 443,
       };
 
+// React libraries used by pages. Pre-bundling them at startup stops Vite
+// from discovering them mid-session, which reloads the worker with a second
+// copy of React ("Invalid hook call", then hung requests).
+const reactDeps = ["@tanstack/react-query", "@shopify/app-bridge-react"];
+
 export default defineConfig({
+  optimizeDeps: { include: reactDeps },
+  environments: {
+    void_worker: {
+      optimizeDeps: {
+        include: [
+          ...reactDeps,
+          "@shopify/shopify-api",
+          "@shopify/shopify-api/adapters/cf-worker",
+        ],
+      },
+    },
+  },
   server: {
     port: Number(process.env.PORT || 3000),
     allowedHosts: [host],
