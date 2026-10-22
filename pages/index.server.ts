@@ -9,7 +9,7 @@ export const loader = defineHandler(async (c) => {
   const { graphql } = c.get("shopify");
 
   // `data` is typed from the query by GraphQL codegen.
-  const data = await graphql(`#graphql
+  const data = await graphql(/* graphql */ `#graphql
     query Home {
       shop {
         name
@@ -40,7 +40,7 @@ export const actions = {
     const { graphql } = c.get("shopify");
 
     const data = await graphql(
-      `#graphql
+      /* graphql */ `#graphql
         mutation CreateProduct($product: ProductCreateInput!) {
           productCreate(product: $product) {
             product {

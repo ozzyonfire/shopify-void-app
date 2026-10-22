@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { adminGraphql } from "../src/shopify/admin-client";
 import type { Props } from "./index.server";
 
-// Tagged with `#graphql` so codegen generates its result type.
-const SHOP_INFO_QUERY = `#graphql
+// `#graphql` lets codegen find this query and generate its result type.
+// `/* graphql */` turns on GraphQL syntax highlighting in editors like Zed.
+const SHOP_INFO_QUERY = /* graphql */ `#graphql
   query ShopInfo {
     shop {
       currencyCode

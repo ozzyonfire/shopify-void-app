@@ -73,7 +73,7 @@ In any loader, action, or route:
 ```ts
 export const loader = defineHandler(async (c) => {
   const { shop, session, graphql } = c.get("shopify");
-  const data = await graphql(`#graphql
+  const data = await graphql(/* graphql */ `#graphql
     query ShopName {
       shop {
         name
@@ -94,7 +94,7 @@ Outside a merchant request (webhooks, crons, queues), use `getOfflineSession(sho
 import { useQuery } from "@tanstack/react-query";
 import { adminGraphql } from "../src/shopify/admin-client";
 
-const SHOP_INFO_QUERY = `#graphql
+const SHOP_INFO_QUERY = /* graphql */ `#graphql
   query ShopInfo {
     shop {
       currencyCode
@@ -156,6 +156,7 @@ pnpm db:migrate    # apply it locally
 Any string starting with `#graphql` in `pages/`, `routes/`, `src/`, or `middleware/` is picked up by codegen (configured in `.graphqlrc.ts`). Codegen validates it against the Admin API schema, then registers its result and variable types by the query text. Both `graphql()` on the server and `adminGraphql()` in the browser look up those types, so there are no type annotations to write.
 
 - Give each operation a name (`query ShopInfo { ... }`). Codegen needs it.
+- Prefix the template literal with `/* graphql */` for syntax highlighting in editors like Zed.
 - Keep the query a plain string literal (no `${}` interpolation), either inline or in a `const`.
 - Queries codegen hasn't seen yet resolve to `unknown`.
 
